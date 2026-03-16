@@ -104,8 +104,12 @@ class MemorySystem:
         
         return result
     
-    def update_memory(self, id: str, **kwargs) -> bool:
+    def update_memory(self, id: str, auto_sync: bool = None, **kwargs) -> bool:
         """更新现有记忆"""
+        # 默认使用实例的 auto_sync 设置
+        if auto_sync is None:
+            auto_sync = self.auto_sync
+        
         # 转换字典为对象
         if 'context' in kwargs and isinstance(kwargs['context'], dict):
             ctx = kwargs['context']
@@ -134,11 +138,33 @@ class MemorySystem:
                 mood=feel.get('mood')
             )
         
-        return self.storage.update_entry(id, **kwargs)
+        result = self.storage.update_entry(id, **kwargs)
+        
+        # 自动同步
+        if auto_sync and result:
+            try:
+                self.sync_now()
+            except Exception:
+                pass
+        
+        return result
     
-    def delete_memory(self, id: str) -> bool:
+    def delete_memory(self, id: str, auto_sync: bool = None) -> bool:
         """删除记忆"""
-        return self.storage.delete_entry(id)
+        # 默认使用实例的 auto_sync 设置
+        if auto_sync is None:
+            auto_sync = self.auto_sync
+        
+        result = self.storage.delete_entry(id)
+        
+        # 自动同步
+        if auto_sync and result:
+            try:
+                self.sync_now()
+            except Exception:
+                pass
+        
+        return result
     
     # ========== 读取接口 ==========
     
