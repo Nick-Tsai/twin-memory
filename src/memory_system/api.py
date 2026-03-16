@@ -79,7 +79,33 @@ class MemorySystem:
         Returns:
             {"id": "...", "filePath": "...", "success": True}
         """
-        # ... 原有转换逻辑 ...
+        # 转换字典为对象
+        context_obj = None
+        if context:
+            context_obj = Context(
+                when=context.get('when'),
+                where=context.get('where'),
+                who=context.get('who', []),
+                atmosphere=context.get('atmosphere'),
+                sensory=context.get('sensory', {})
+            )
+        
+        facts_obj = None
+        if facts:
+            facts_obj = Facts(
+                observed=facts.get('observed', []),
+                learned=facts.get('learned', []),
+                happened=facts.get('happened', [])
+            )
+        
+        feelings_obj = None
+        if feelings:
+            feelings_obj = Feelings(
+                immediate=feelings.get('immediate', []),
+                thought=feelings.get('thought', []),
+                significance=feelings.get('significance', []),
+                mood=feelings.get('mood')
+            )
         
         result = self.storage.create_entry(
             title=title,
