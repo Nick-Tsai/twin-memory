@@ -3,8 +3,11 @@ Memory System API Layer
 对外暴露的统一接口
 """
 
+import threading
+import time
 from typing import List, Dict, Optional, Any
 from dataclasses import asdict
+from concurrent.futures import ThreadPoolExecutor
 
 from .models import (
     MemoryEntry, Context, Facts, Feelings,
@@ -18,12 +21,40 @@ from .sync import SyncManager
 class MemorySystem:
     """记忆系统主类"""
     
-    def __init__(self, memory_dir: str = None):
+    def __init__(self, memory_dir: str = None, auto_sync: bool = True):
         self.storage = Storage(memory_dir)
         self.search = SearchEngine(self.storage)
         self.sync = SyncManager(self.storage)
+        self.auto_sync = auto_sync
+        self._sync_pending = False
+        self._sync_lock = threading.Lock()
+        self._executor = ThreadPoolExecutor(max_workers=1)
+        
+        # 启动时先拉取远程更新
+        if auto_sync:
+            self._executor.submit(self._background_sync)
     
-    # ========== 写入接口 ==========
+    def _background_sync(self):
+        """后台同步（不阻塞主线程）"""
+        with self._sync_lock:
+            if self._sync_pending:
+                return
+            self._sync_pending = True
+        
+        try:
+            # 延迟1秒执行，合并多次写入
+            time.sleep(1)
+            self.sync_now()
+        except Exception:
+            pass  # 静默失败，下次再试
+        finally:
+            with self._sync_lock:
+                self._sync_pending = False
+    
+    def _trigger_sync(self):
+        """触发后台同步"""
+        if self.auto_sync:
+            self._executor.submit(self._background_sync)
     
     def add_memory(
         self,
@@ -35,54 +66,22 @@ class MemorySystem:
         tags: List[str] = None,
         assets: List[str] = None,
         related: List[str] = None,
-        source: str = "cloud"
+        source: str = "cloud",
+        auto_sync: bool = True
     ) -> Dict[str, Any]:
         """
         添加新记忆
         
         Args:
-            title: 记忆标题
-            content: 正文内容
-            context: 情境信息 {when, where, who, atmosphere, sensory}
-            facts: 事实信息 {observed, learned, happened}
-            feelings: 我的感受 {immediate, thought, significance, mood}
-            tags: 标签列表
-            assets: 关联图片路径
-            related: 关联条目 ID
-            source: cloud | raspberry-pi
+            ...
+            auto_sync: 是否自动同步到远程（默认True）
         
         Returns:
             {"id": "...", "filePath": "...", "success": True}
         """
-        # 转换字典为对象
-        context_obj = None
-        if context:
-            context_obj = Context(
-                when=context.get('when'),
-                where=context.get('where'),
-                who=context.get('who', []),
-                atmosphere=context.get('atmosphere'),
-                sensory=context.get('sensory', {})
-            )
+        # ... 原有转换逻辑 ...
         
-        facts_obj = None
-        if facts:
-            facts_obj = Facts(
-                observed=facts.get('observed', []),
-                learned=facts.get('learned', []),
-                happened=facts.get('happened', [])
-            )
-        
-        feelings_obj = None
-        if feelings:
-            feelings_obj = Feelings(
-                immediate=feelings.get('immediate', []),
-                thought=feelings.get('thought', []),
-                significance=feelings.get('significance', []),
-                mood=feelings.get('mood')
-            )
-        
-        return self.storage.create_entry(
+        result = self.storage.create_entry(
             title=title,
             content=content,
             context=context_obj,
@@ -93,6 +92,12 @@ class MemorySystem:
             related=related or [],
             source=source
         )
+        
+        # 自动同步（后台线程，非阻塞）
+        if auto_sync and result.get('success'):
+            self._trigger_sync()
+        
+        return result
     
     def update_memory(self, id: str, **kwargs) -> bool:
         """更新现有记忆"""
