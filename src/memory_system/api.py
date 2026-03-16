@@ -3,11 +3,8 @@ Memory System API Layer
 对外暴露的统一接口
 """
 
-import threading
-import time
 from typing import List, Dict, Optional, Any
 from dataclasses import asdict
-from concurrent.futures import ThreadPoolExecutor
 
 from .models import (
     MemoryEntry, Context, Facts, Feelings,
@@ -26,35 +23,13 @@ class MemorySystem:
         self.search = SearchEngine(self.storage)
         self.sync = SyncManager(self.storage)
         self.auto_sync = auto_sync
-        self._sync_pending = False
-        self._sync_lock = threading.Lock()
-        self._executor = ThreadPoolExecutor(max_workers=1)
         
-        # 启动时先拉取远程更新
+        # 启动时拉取远程更新
         if auto_sync:
-            self._executor.submit(self._background_sync)
-    
-    def _background_sync(self):
-        """后台同步（不阻塞主线程）"""
-        with self._sync_lock:
-            if self._sync_pending:
-                return
-            self._sync_pending = True
-        
-        try:
-            # 延迟1秒执行，合并多次写入
-            time.sleep(1)
-            self.sync_now()
-        except Exception:
-            pass  # 静默失败，下次再试
-        finally:
-            with self._sync_lock:
-                self._sync_pending = False
-    
-    def _trigger_sync(self):
-        """触发后台同步"""
-        if self.auto_sync:
-            self._executor.submit(self._background_sync)
+            try:
+                self.sync_now()
+            except Exception:
+                pass  # 静默失败
     
     def add_memory(
         self,
@@ -119,9 +94,13 @@ class MemorySystem:
             source=source
         )
         
-        # 自动同步（后台线程，非阻塞）
+        # 自动同步（同步执行，简单可靠）
         if auto_sync and result.get('success'):
-            self._trigger_sync()
+            try:
+                self.sync_now()
+            except Exception as e:
+                # 同步失败只记录，不抛出
+                result['sync_error'] = str(e)
         
         return result
     
